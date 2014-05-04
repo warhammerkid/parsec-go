@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"runtime"
+	"time"
 	"encoding/json"
 	"net/http"
 	"database/sql"
@@ -16,8 +17,8 @@ type ActionResponse struct {
 
 const (
 	// Database
-	tableCreate = "CREATE TABLE IF NOT EXISTS raid_groups (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE, password TEXT, admin_password TEXT);"
-	createRaidGroup = "INSERT INTO raid_groups VALUES (NULL, ?, ?, ?)"
+	tableCreate = "CREATE TABLE IF NOT EXISTS raid_groups (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE, password TEXT, admin_password TEXT, datetime TEXT);"
+	createRaidGroup = "INSERT INTO raid_groups VALUES (NULL, ?, ?, ?, ?)"
 	deleteRaidGroup = "DELETE FROM raid_groups WHERE name=? AND admin_password=?"
 )
 
@@ -78,7 +79,7 @@ func requestRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert into the database
-	qres, _ := createRaidGroupStmt.Exec(req.RequestedName, req.RequestedPassword, req.AdminPassword)
+	qres, _ := createRaidGroupStmt.Exec(req.RequestedName, req.RequestedPassword, req.AdminPassword, time.Now().Format(time.RFC3339))
 	if qres != nil {
 		affected, _ := qres.RowsAffected()
 		if affected == 1 {
