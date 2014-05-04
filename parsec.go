@@ -20,12 +20,14 @@ const (
 	tableCreate = "CREATE TABLE IF NOT EXISTS raid_groups (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE, password TEXT, admin_password TEXT, datetime TEXT);"
 	createRaidGroup = "INSERT INTO raid_groups VALUES (NULL, ?, ?, ?, ?)"
 	deleteRaidGroup = "DELETE FROM raid_groups WHERE name=? AND admin_password=?"
+	loginSelect     = "SELECT id FROM raid_groups WHERE name=? AND password=?"
 )
 
 var (
 	// Database
 	createRaidGroupStmt *sql.Stmt
 	deleteRaidGroupStmt *sql.Stmt
+	loginStmt           *sql.Stmt
 )
 
 func main() {
@@ -49,9 +51,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	loginStmt, err = db.Prepare(loginSelect)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	http.HandleFunc("/RequestRaidGroup", requestRaidGroupHandler)
 	http.HandleFunc("/DeleteRaidGroup", deleteRaidGroupHandler)
+	http.HandleFunc("/TestConnection", testConnectionHandler)
 	http.ListenAndServe(":8080", nil)
 }
 
@@ -120,4 +127,41 @@ func deleteRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 			res.Message = "Raid group deleted successfully"
 		}
 	}
+}
+
+func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
+	// Set up http response and defer writing output
+	type TestConnectionResponse struct {
+		ErrorMessage string
+	}
+	res := TestConnectionResponse{"Connection failed"}
+	w.Header().Set("Content-Type", "application/json")
+	defer json.NewEncoder(w).Encode(&res)
+
+	// Parse request
+	type TestConnectionRequest struct {
+		RaidGroup string
+		RaidPassword string
+	}
+	var req TestConnectionRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		res.ErrorMessage = "Invalid JSON"
+	}
+
+	// Attempt to login
+	groupId := loginRaid(req.RaidGroup, req.RaidPassword)
+	if groupId > 0 {
+		res.ErrorMessage = ""
+	}
+}
+
+func loginRaid(group string, password string) uint32 {
+	log.Printf("Attempting to login: %s, %s", group, password)
+	type RaidGroup struct {
+		Id uint32
+	}
+	var raidGroup RaidGroup
+	loginStmt.QueryRow(group, password).Scan(&raidGroup.Id)
+	return raidGroup.Id
 }
