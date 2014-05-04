@@ -158,10 +158,7 @@ func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
 
 func loginRaid(group string, password string) uint32 {
 	log.Printf("Attempting to login: %s, %s", group, password)
-	type RaidGroup struct {
-		Id uint32
-	}
-	var raidGroup RaidGroup
-	loginStmt.QueryRow(group, password).Scan(&raidGroup.Id)
-	return raidGroup.Id
+	var id uint32
+	loginStmt.QueryRow(group, password).Scan(&id)
+	return id
 }
