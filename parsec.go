@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"time"
 	"sync"
+	"compress/gzip"
 	"encoding/json"
 	"net/http"
 	"database/sql"
@@ -146,8 +147,7 @@ func main() {
 func requestRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 	// Set up http response and defer writing output
 	res := ActionResponse{false, "An unknown error was encountered"}
-	w.Header().Set("Content-Type", "application/json")
-	defer json.NewEncoder(w).Encode(&res)
+	defer sendSerializedJSON(w, &res)
 
 	// Parse and validate request
 	var req CreateRequest
@@ -178,8 +178,7 @@ func requestRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 func deleteRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 	// Set up http response and defer writing output
 	res := ActionResponse{false, "An unknown error was encountered"}
-	w.Header().Set("Content-Type", "application/json")
-	defer json.NewEncoder(w).Encode(&res)
+	defer sendSerializedJSON(w, &res)
 
 	// Parse request
 	var req DeleteRequest
@@ -204,8 +203,7 @@ func deleteRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	// Set up http response and defer writing output
 	res := SyncOrGetResponse{ErrorMessage:"Connection failed"}
-	w.Header().Set("Content-Type", "application/json")
-	defer json.NewEncoder(w).Encode(&res)
+	defer sendSerializedJSON(w, &res)
 
 	// Parse request
 	var req SyncOrGetRequest
@@ -225,8 +223,7 @@ func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
 func syncOrGetStatsHandler(w http.ResponseWriter, r *http.Request) {
 	// Set up http response and defer writing output
 	res := SyncOrGetResponse{ErrorMessage:"An unknown error was encountered"}
-	w.Header().Set("Content-Type", "application/json")
-	defer json.NewEncoder(w).Encode(&res)
+	defer sendSerializedJSON(w, &res)
 
 	// Parse request
 	var req SyncOrGetRequest
@@ -322,6 +319,14 @@ func updateRaidStats(raidStats *RaidStats, parsedUser RaidUser) {
 	user.LastConnectDate  = nowString
 	user.IsConnected      = true
 	user.LastCombatUpdate = nowString
+}
+
+func sendSerializedJSON(w http.ResponseWriter, res interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Encoding", "gzip")
+	gz := gzip.NewWriter(w)
+	json.NewEncoder(gz).Encode(&res)
+	gz.Close()
 }
 
 // Go through all raid groups and remove those that are inactive
