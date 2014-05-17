@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"fmt"
 	"log"
 	"runtime"
 	"time"
@@ -124,14 +126,21 @@ func main() {
 	// Start up raid GC
 	go garbageCollectRaidStats()
 
+	// What port are we running on?
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	httpPort := fmt.Sprintf(":%s", port)
+
 	// Start up web server
-	log.Print("Starting up Parsec Server")
+	log.Printf("Starting up Parsec Server on port %s", port)
 	http.HandleFunc("/RequestRaidGroup", requestRaidGroupHandler)
 	http.HandleFunc("/DeleteRaidGroup", deleteRaidGroupHandler)
 	http.HandleFunc("/TestConnection", testConnectionHandler)
 	http.HandleFunc("/SyncRaidStats", syncOrGetStatsHandler)
 	http.HandleFunc("/GetRaidStats", syncOrGetStatsHandler)
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(httpPort, nil)
 }
 
 func requestRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
