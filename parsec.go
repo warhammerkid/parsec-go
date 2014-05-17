@@ -10,9 +10,60 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type RaidUser struct {
+	RaidUserId            int32 `json:"RaidUserId" sync_type:"client-static"`
+	RaidGroupId           uint32 `json:"RaidGroupId" sync_type:"server-static"`
+	LastConnectDate       string `json:"LastConnectDate" sync_type:"server"`
+	IsConnected           bool `json:"IsConnected" sync_type:"server"`
+	CharacterName         string `json:"CharacterName" sync_type:"client-static"`
+	DamageOut             int32 `json:"DamageOut" sync_type:"client"`
+	DamageIn              int32 `json:"DamageIn" sync_type:"client"`
+	HealOut               int32 `json:"HealOut" sync_type:"client"`
+	EffectiveHealOut      int32 `json:"EffectiveHealOut" sync_type:"client"`
+	HealIn                int32 `json:"HealIn" sync_type:"client"`
+	Threat                int32 `json:"Threat" sync_type:"client"`
+	RaidEncounterId       int32 `json:"RaidEncounterId" sync_type:"client"`
+	RaidEncounterMode     int32 `json:"RaidEncounterMode" sync_type:"client"`
+	RaidEncounterPlayers  int32 `json:"RaidEncounterPlayers" sync_type:"client"`
+	CombatTicks           int64 `json:"CombatTicks" sync_type:"client"`
+	CombatStart           string `json:"CombatStart" sync_type:"client"`
+	CombatEnd             string `json:"CombatEnd" sync_type:"client"`
+	LastCombatUpdate      string `json:"LastCombatUpdate" sync_type:"server"`
+}
+
+type RaidStats struct {
+	GroupId               uint32
+	GroupName             string
+	Users                 []*RaidUser
+	LastActivity          time.Time
+}
+
 type ActionResponse struct {
-	Success bool `json:"Success"`
-	Message string `json:"Message"`
+	Success               bool
+	Message               string
+}
+
+type CreateRequest struct {
+	RequestedName         string `json:"requestedName"`
+	RequestedPassword     string `json:"requestedPassword"`
+	AdminPassword         string `json:"adminPassword"`
+}
+
+type DeleteRequest struct {
+	GroupName             string `json:"groupName"`
+	AdminPassword         string `json:"adminPassword"`
+}
+
+type SyncOrGetRequest struct {
+	RaidGroup             string
+	RaidPassword          string
+	Statistics            RaidUser
+}
+
+type SyncOrGetResponse struct {
+	ErrorMessage          string
+	Users                 []*RaidUser
+	MinimumPollingRate    uint32
 }
 
 const (
@@ -28,17 +79,22 @@ var (
 	createRaidGroupStmt *sql.Stmt
 	deleteRaidGroupStmt *sql.Stmt
 	loginStmt           *sql.Stmt
+
+	// Stats
+	allRaidStats        map[uint32]*RaidStats
 )
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
+	// Open database
 	db, err := sql.Open("sqlite3", "./raid_groups.db")
 	if err != nil {
 		log.Fatalf("Error opening database: %v", err)
 	}
 	defer db.Close()
 
+	// Prepare SQL queries
 	_, err = db.Exec(tableCreate)
 	if err != nil {
 		log.Fatal(err)
@@ -56,10 +112,15 @@ func main() {
 		log.Fatal(err)
 	}
 
-	log.Printf("Starting up Parsec Server")
+	// Initialize in-memory stores
+	allRaidStats = make(map[uint32]*RaidStats)
+
+	// Start up web server
+	log.Print("Starting up Parsec Server")
 	http.HandleFunc("/RequestRaidGroup", requestRaidGroupHandler)
 	http.HandleFunc("/DeleteRaidGroup", deleteRaidGroupHandler)
 	http.HandleFunc("/TestConnection", testConnectionHandler)
+	http.HandleFunc("/SyncRaidStats", syncOrGetStatsHandler)
 	http.ListenAndServe(":8080", nil)
 }
 
@@ -70,11 +131,6 @@ func requestRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 	defer json.NewEncoder(w).Encode(&res)
 
 	// Parse and validate request
-	type CreateRequest struct {
-		RequestedName string `json:"requestedName"`
-		RequestedPassword string `json:"requestedPassword"`
-		AdminPassword string `json:"adminPassword"`
-	}
 	var req CreateRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -107,10 +163,6 @@ func deleteRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 	defer json.NewEncoder(w).Encode(&res)
 
 	// Parse request
-	type DeleteRequest struct {
-		GroupName string `json:"groupName"`
-		AdminPassword string `json:"adminPassword"`
-	}
 	var req DeleteRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -132,22 +184,16 @@ func deleteRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	// Set up http response and defer writing output
-	type TestConnectionResponse struct {
-		ErrorMessage string
-	}
-	res := TestConnectionResponse{"Connection failed"}
+	res := SyncOrGetResponse{"Connection failed", make([]*RaidUser, 0), 0}
 	w.Header().Set("Content-Type", "application/json")
 	defer json.NewEncoder(w).Encode(&res)
 
 	// Parse request
-	type TestConnectionRequest struct {
-		RaidGroup string
-		RaidPassword string
-	}
-	var req TestConnectionRequest
+	var req SyncOrGetRequest
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		res.ErrorMessage = "Invalid JSON"
+		return
 	}
 
 	// Attempt to login
@@ -155,6 +201,36 @@ func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	if groupId > 0 {
 		res.ErrorMessage = ""
 	}
+}
+
+func syncOrGetStatsHandler(w http.ResponseWriter, r *http.Request) {
+	// Set up http response and defer writing output
+	res := SyncOrGetResponse{"Failed!", make([]*RaidUser, 0), 0}
+	w.Header().Set("Content-Type", "application/json")
+	defer json.NewEncoder(w).Encode(&res)
+
+	// Parse request
+	var req SyncOrGetRequest
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		res.ErrorMessage = "Invalid JSON"
+		return
+	}
+
+	// Attempt to login
+	raidStats := loginRaidStats(req.RaidGroup, req.RaidPassword)
+	if raidStats == nil {
+		res.ErrorMessage = "Invalid RaidGroup or RaidPassword"
+		return
+	}
+
+	// Save stats
+	if r.URL.Path == "/SyncRaidStats" {
+		updateRaidStats(raidStats, req.Statistics)
+	}
+
+	// Copy raid stats to response
+	res.Users = raidStats.Users
 }
 
 func loginRaid(group string, password string) uint32 {
@@ -166,4 +242,59 @@ func loginRaid(group string, password string) uint32 {
 	} else {
 		return 0
 	}
+}
+
+func loginRaidStats(group string, password string) *RaidStats {
+	// Login to get group id
+	groupId := loginRaid(group, password)
+	if groupId <= 0 {
+		return nil
+	}
+
+	// Get or create RaidStats and update access time
+	raidStats, ok := allRaidStats[groupId]
+	if ok {
+		raidStats.LastActivity = time.Now()
+	} else {
+		users := make([]*RaidUser, 0, 8)
+		raidStats = &RaidStats{groupId, group, users, time.Now()}
+		allRaidStats[groupId] = raidStats
+	}
+
+	return raidStats
+}
+
+func updateRaidStats(raidStats *RaidStats, parsedUser RaidUser) {
+	nowString := time.Now().UTC().Format(time.RFC3339)
+
+	// Update existing user or create new one
+	var user *RaidUser
+	for i := 0; i < len(raidStats.Users); i++ {
+		if raidStats.Users[i].RaidUserId == parsedUser.RaidUserId {
+			user = raidStats.Users[i]
+			user.DamageOut            = parsedUser.DamageOut
+			user.DamageIn             = parsedUser.DamageIn
+			user.HealOut              = parsedUser.HealOut
+			user.EffectiveHealOut     = parsedUser.EffectiveHealOut
+			user.HealIn               = parsedUser.HealIn
+			user.Threat               = parsedUser.Threat
+			user.RaidEncounterId      = parsedUser.RaidEncounterId
+			user.RaidEncounterMode    = parsedUser.RaidEncounterMode
+			user.RaidEncounterPlayers = parsedUser.RaidEncounterPlayers
+			user.CombatTicks          = parsedUser.CombatTicks
+			user.CombatStart          = parsedUser.CombatStart
+			user.CombatEnd            = parsedUser.CombatEnd
+			break
+		}
+	}
+	if user == nil {
+		user = &parsedUser
+		user.RaidGroupId = raidStats.GroupId
+		raidStats.Users = append(raidStats.Users, user)
+	}
+
+	// Update user server-managed properties
+	user.LastConnectDate  = nowString
+	user.IsConnected      = true
+	user.LastCombatUpdate = nowString
 }
