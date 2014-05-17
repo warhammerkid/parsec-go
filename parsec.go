@@ -130,6 +130,7 @@ func main() {
 	http.HandleFunc("/DeleteRaidGroup", deleteRaidGroupHandler)
 	http.HandleFunc("/TestConnection", testConnectionHandler)
 	http.HandleFunc("/SyncRaidStats", syncOrGetStatsHandler)
+	http.HandleFunc("/GetRaidStats", syncOrGetStatsHandler)
 	http.ListenAndServe(":8080", nil)
 }
 
