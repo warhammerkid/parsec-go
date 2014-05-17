@@ -4,6 +4,7 @@ import (
 	"log"
 	"runtime"
 	"time"
+	"sync"
 	"encoding/json"
 	"net/http"
 	"database/sql"
@@ -36,6 +37,11 @@ type RaidStats struct {
 	GroupName             string
 	Users                 []*RaidUser
 	LastActivity          time.Time
+}
+
+type RaidStatsCache struct {
+	sync.RWMutex
+	Raids                 map[uint32]*RaidStats
 }
 
 type ActionResponse struct {
@@ -81,7 +87,7 @@ var (
 	loginStmt           *sql.Stmt
 
 	// Stats
-	allRaidStats        map[uint32]*RaidStats
+	allRaidStats        *RaidStatsCache
 )
 
 func main() {
@@ -113,7 +119,10 @@ func main() {
 	}
 
 	// Initialize in-memory stores
-	allRaidStats = make(map[uint32]*RaidStats)
+	allRaidStats = &RaidStatsCache{Raids:map[uint32]*RaidStats{}}
+
+	// Start up raid GC
+	go garbageCollectRaidStats()
 
 	// Start up web server
 	log.Print("Starting up Parsec Server")
@@ -184,7 +193,7 @@ func deleteRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
 	// Set up http response and defer writing output
-	res := SyncOrGetResponse{"Connection failed", make([]*RaidUser, 0), 0}
+	res := SyncOrGetResponse{ErrorMessage:"Connection failed"}
 	w.Header().Set("Content-Type", "application/json")
 	defer json.NewEncoder(w).Encode(&res)
 
@@ -205,7 +214,7 @@ func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
 
 func syncOrGetStatsHandler(w http.ResponseWriter, r *http.Request) {
 	// Set up http response and defer writing output
-	res := SyncOrGetResponse{"Failed!", make([]*RaidUser, 0), 0}
+	res := SyncOrGetResponse{ErrorMessage:"An unknown error was encountered"}
 	w.Header().Set("Content-Type", "application/json")
 	defer json.NewEncoder(w).Encode(&res)
 
@@ -229,8 +238,10 @@ func syncOrGetStatsHandler(w http.ResponseWriter, r *http.Request) {
 		updateRaidStats(raidStats, req.Statistics)
 	}
 
-	// Copy raid stats to response
+	// Prepare response
+	res.ErrorMessage = ""
 	res.Users = raidStats.Users
+	res.MinimumPollingRate = 1
 }
 
 func loginRaid(group string, password string) uint32 {
@@ -252,13 +263,17 @@ func loginRaidStats(group string, password string) *RaidStats {
 	}
 
 	// Get or create RaidStats and update access time
-	raidStats, ok := allRaidStats[groupId]
+	allRaidStats.RLock()
+	raidStats, ok := allRaidStats.Raids[groupId]
+	allRaidStats.RUnlock()
 	if ok {
 		raidStats.LastActivity = time.Now()
 	} else {
 		users := make([]*RaidUser, 0, 8)
 		raidStats = &RaidStats{groupId, group, users, time.Now()}
-		allRaidStats[groupId] = raidStats
+		allRaidStats.Lock()
+		allRaidStats.Raids[groupId] = raidStats
+		allRaidStats.Unlock()
 	}
 
 	return raidStats
@@ -297,4 +312,36 @@ func updateRaidStats(raidStats *RaidStats, parsedUser RaidUser) {
 	user.LastConnectDate  = nowString
 	user.IsConnected      = true
 	user.LastCombatUpdate = nowString
+}
+
+// Go through all raid groups and remove those that are inactive
+func garbageCollectRaidStats() {
+	tick := time.Tick(5*time.Minute)
+	for {
+		<-tick
+
+		now := time.Now()
+		inactiveGroupIds := make([]uint32, 0, 10)
+
+		// Build list of inactive group ids
+		allRaidStats.RLock()
+		for k := range allRaidStats.Raids {
+			raidStats := allRaidStats.Raids[k]
+			inactiveDuration := now.Sub(raidStats.LastActivity)
+			if inactiveDuration > 60*time.Minute {
+				inactiveGroupIds = append(inactiveGroupIds, k)
+			}
+		}
+		allRaidStats.RUnlock()
+
+		// Delete inactive groups
+		if len(inactiveGroupIds) > 0 {
+			log.Printf("Deleting inactive group ids: %v", inactiveGroupIds)
+			allRaidStats.Lock()
+			for i := 0; i < len(inactiveGroupIds); i++ {
+				delete(allRaidStats.Raids, inactiveGroupIds[i])
+			}
+			allRaidStats.Unlock()
+		}
+	}
 }
