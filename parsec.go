@@ -20,7 +20,7 @@ const (
 	tableCreate = "CREATE TABLE IF NOT EXISTS raid_groups (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE, password TEXT, admin_password TEXT, datetime TEXT);"
 	createRaidGroup = "INSERT INTO raid_groups VALUES (NULL, ?, ?, ?, ?)"
 	deleteRaidGroup = "DELETE FROM raid_groups WHERE name=? AND admin_password=?"
-	loginSelect     = "SELECT id FROM raid_groups WHERE name=? AND password=?"
+	loginSelect     = "SELECT id, password FROM raid_groups WHERE name=?"
 )
 
 var (
@@ -56,6 +56,7 @@ func main() {
 		log.Fatal(err)
 	}
 
+	log.Printf("Starting up Parsec Server")
 	http.HandleFunc("/RequestRaidGroup", requestRaidGroupHandler)
 	http.HandleFunc("/DeleteRaidGroup", deleteRaidGroupHandler)
 	http.HandleFunc("/TestConnection", testConnectionHandler)
@@ -157,8 +158,12 @@ func testConnectionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func loginRaid(group string, password string) uint32 {
-	log.Printf("Attempting to login: %s, %s", group, password)
 	var id uint32
-	loginStmt.QueryRow(group, password).Scan(&id)
-	return id
+	var groupPassword string
+	loginStmt.QueryRow(group).Scan(&id, &groupPassword)
+	if password == groupPassword {
+		return id
+	} else {
+		return 0
+	}
 }
