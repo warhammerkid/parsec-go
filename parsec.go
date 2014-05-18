@@ -81,6 +81,13 @@ const (
 	createRaidGroup = "INSERT INTO raid_groups VALUES (NULL, ?, ?, ?, ?)"
 	deleteRaidGroup = "DELETE FROM raid_groups WHERE name=? AND admin_password=?"
 	loginSelect     = "SELECT id, password FROM raid_groups WHERE name=?"
+
+	// Paths
+	requestRaidGroupPath = "/api/RequestRaidGroup"
+	deleteRaidGroupPath = "/api/DeleteRaidGroup"
+	testConnectionPath = "/api/TestConnection"
+	syncRaidStatsPath = "/api/SyncRaidStats"
+	getRaidStatsPath = "/api/GetRaidStats"
 )
 
 var (
@@ -137,11 +144,11 @@ func main() {
 	// Start up web server
 	log.Printf("Starting up Parsec Server on port %s", port)
 	http.HandleFunc("/", homepageHandler)
-	http.HandleFunc("/api/RequestRaidGroup", requestRaidGroupHandler)
-	http.HandleFunc("/api/DeleteRaidGroup", deleteRaidGroupHandler)
-	http.HandleFunc("/api/TestConnection", testConnectionHandler)
-	http.HandleFunc("/api/SyncRaidStats", syncOrGetStatsHandler)
-	http.HandleFunc("/api/GetRaidStats", syncOrGetStatsHandler)
+	http.HandleFunc(requestRaidGroupPath, requestRaidGroupHandler)
+	http.HandleFunc(deleteRaidGroupPath, deleteRaidGroupHandler)
+	http.HandleFunc(testConnectionPath, testConnectionHandler)
+	http.HandleFunc(syncRaidStatsPath, syncOrGetStatsHandler)
+	http.HandleFunc(getRaidStatsPath, syncOrGetStatsHandler)
 	http.ListenAndServe(httpPort, nil)
 }
 
@@ -246,7 +253,7 @@ func syncOrGetStatsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save stats
-	if r.URL.Path == "/SyncRaidStats" {
+	if r.URL.Path == syncRaidStatsPath {
 		updateRaidStats(raidStats, req.Statistics)
 	}
 
@@ -281,6 +288,7 @@ func loginRaidStats(group string, password string) *RaidStats {
 	if ok {
 		raidStats.LastActivity = time.Now()
 	} else {
+		log.Printf("Creating raid stats collection for: %s (%d)", group, groupId)
 		users := make([]*RaidUser, 0, 8)
 		raidStats = &RaidStats{groupId, group, users, time.Now()}
 		allRaidStats.Lock()
