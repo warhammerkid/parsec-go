@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"time"
 	"sync"
+	"compress/gzip"
+	"encoding/json"
 	"net/http"
 	"database/sql"
 	"github.com/satori/go.uuid"
@@ -26,23 +28,23 @@ type User struct {
 }
 
 type UserStats struct {
-	raidUserId            int32 `json:"RaidUserId" sync_type:"client-static"`
-	raidGroupId           uint32 `json:"RaidGroupId" sync_type:"server-static"`
-	lastConnectDate       string `json:"LastConnectDate" sync_type:"server"`
-	characterName         string `json:"CharacterName" sync_type:"client-static"`
-	damageOut             int32 `json:"DamageOut" sync_type:"client"`
-	damageIn              int32 `json:"DamageIn" sync_type:"client"`
-	healOut               int32 `json:"HealOut" sync_type:"client"`
-	effectiveHealOut      int32 `json:"EffectiveHealOut" sync_type:"client"`
-	healIn                int32 `json:"HealIn" sync_type:"client"`
-	threat                int32 `json:"Threat" sync_type:"client"`
-	raidEncounterId       int32 `json:"RaidEncounterId" sync_type:"client"`
-	raidEncounterMode     int32 `json:"RaidEncounterMode" sync_type:"client"`
-	raidEncounterPlayers  int32 `json:"RaidEncounterPlayers" sync_type:"client"`
-	combatTicks           int64 `json:"CombatTicks" sync_type:"client"`
-	combatStart           string `json:"CombatStart" sync_type:"client"`
-	combatEnd             string `json:"CombatEnd" sync_type:"client"`
-	lastCombatUpdate      string `json:"LastCombatUpdate" sync_type:"server"`
+	RaidUserId            int32
+	RaidGroupId           uint32 // Server provided
+	LastConnectDate       string // Server provided
+	CharacterName         string
+	DamageOut             int32
+	DamageIn              int32
+	HealOut               int32
+	EffectiveHealOut      int32
+	HealIn                int32
+	Threat                int32
+	RaidEncounterId       int32
+	RaidEncounterMode     int32
+	RaidEncounterPlayers  int32
+	CombatTicks           int64
+	CombatStart           string
+	CombatEnd             string
+	LastCombatUpdate      string // Server provided
 }
 
 type RaidGroupStore struct {
@@ -119,6 +121,7 @@ func main() {
 	log.Printf("Starting up Parsec Server on port %s", port)
 	http.HandleFunc("/api/v2/raid_group", raidGroupHandler)
 	http.HandleFunc("/api/v2/connect", connectHandler)
+	http.HandleFunc("/api/v2/stats", statsHandler)
 	http.ListenAndServe(httpPort, nil)
 }
 
@@ -218,6 +221,43 @@ func connectHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(token))
 }
 
+func statsHandler(w http.ResponseWriter, r *http.Request) {
+	// Look up user by token
+	token := r.URL.Query().Get("t")
+	allUsers.RLock()
+	user := allUsers.users[token]
+	allUsers.RUnlock()
+	if user == nil {
+		http.Error(w, "Invalid connection token", 400)
+		return
+	}
+
+	// Update activity timestamp
+	user.lastActivity = time.Now()
+
+	// Update user stats if POST
+	if r.Method == "POST" {
+		// Parse JSON
+		var userStats UserStats
+		err := json.NewDecoder(r.Body).Decode(&userStats)
+		if err != nil {
+			http.Error(w, "Invalid JSON", 400)
+			return
+		}
+
+		// Update user
+		user.stats = userStats
+	}
+
+	// Build response
+	raidGroupStats := calculateRaidStats(user.raidGroup)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Encoding", "gzip")
+	gz := gzip.NewWriter(w)
+	json.NewEncoder(gz).Encode(&raidGroupStats)
+	gz.Close()
+}
+
 func loginRaid(group string, password string) uint32 {
 	var id uint32
 	var groupPassword string
@@ -227,4 +267,18 @@ func loginRaid(group string, password string) uint32 {
 	} else {
 		return 0
 	}
+}
+
+func calculateRaidStats(raidGroup *RaidGroup) []UserStats {
+	// Pull out all user stats
+	raidGroup.RLock()
+	userStats := make([]UserStats, len(raidGroup.users))
+	for i := 0; i < len(raidGroup.users); i++ {
+		userStats[i] = raidGroup.users[i].stats
+	}
+	raidGroup.RUnlock()
+
+	// Post-process...
+
+	return userStats
 }
