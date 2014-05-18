@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<head>
+  <title>Parsec API</title>
+  <link href="http://kevinburke.bitbucket.org/markdowncss/markdown.css" rel="stylesheet"/>
+</head>
+<body>
+<h1>Parsec API</h1>
+
+<h2>POST /api/RequestRaidGroup</h2>
+
+<p>Creates a raid group with the given group name, password, and admin password. The
+admin password is needed to delete the group, should that ever be desired. <strong>NOTE:
+The passwords are currently not being hashed in the database, so do not use a
+password you use anywhere else</strong></p>
+
+<ul>
+<li><p>Request (application/json)</p>
+
+<pre><code>{
+  "requestedName": "RAID GROUP NAME",
+  "requestedPassword": "PASSWORD",
+  "adminPassword": "ADMIN PASSWORD"
+}
+</code></pre></li>
+<li><p>Response 200 (application/json)</p>
+
+<pre><code>{
+  "Success": true,
+  "Message": "Raid group created successfully"
+}
+</code></pre></li>
+<li><p>Response 200 (application/json)</p>
+
+<pre><code>{
+  "Success": false,
+  "Message": "A group with the given name already exists"
+}
+</code></pre></li>
+</ul>
+
+<h2>POST /api/DeleteRaidGroup</h2>
+
+<p>Deletes the raid group with the given name if the admin password matches what was
+used to create the group.</p>
+
+<ul>
+<li><p>Request (application/json)</p>
+
+<pre><code>{
+  "groupName": "RAID GROUP NAME",
+  "adminPassword": "ADMIN PASSWORD"
+}
+</code></pre></li>
+<li><p>Response 200 (application/json)</p>
+
+<pre><code>{
+  "Success": true,
+  "Message": "Raid group deleted successfully"
+}
+</code></pre></li>
+<li><p>Response 200 (application/json)</p>
+
+<pre><code>{
+  "Success": false,
+  "Message": "An unknown error was encountered"
+}
+</code></pre></li>
+</ul>
+
+<h2>POST /api/TestConnection</h2>
+
+<p>Verify that you can connect to the service with the given credentials.</p>
+
+<ul>
+<li><p>Request (application/json)</p>
+
+<pre><code>{
+  "RaidGroup": "RAID GROUP NAME",
+  "RaidPassword": "PASSWORD"
+}
+</code></pre></li>
+<li><p>Response 200 (application/json)</p>
+
+<pre><code>{
+  "ErrorMessage": ""
+}
+</code></pre></li>
+<li><p>Response 200 (application/json)</p>
+
+<pre><code>{
+  "ErrorMessage": "Connection failed"
+}
+</code></pre></li>
+</ul>
+
+<h2>POST /api/GetRaidStats</h2>
+
+<p>Returns a list of all user stats for the raid group</p>
+
+<ul>
+<li><p>Request (application/json)</p>
+
+<pre><code>{
+  "RaidGroup": "RAID GROUP NAME",
+  "RaidPassword": "PASSWORD"
+}
+</code></pre></li>
+<li><p>Response 200 (application/json)</p>
+
+<pre><code>{
+  "ErrorMessage": ""
+  "Users": [
+    {
+      "RaidUserId":5,
+      "RaidGroupId":5001,
+      "LastConnectDate":"2014-05-17T23:39:20Z",
+      "IsConnected":true,
+      "CharacterName":"Karmeld",
+      "DamageOut":2000,
+      "DamageIn":100,
+      "HealOut":0,
+      "EffectiveHealOut":0,
+      "HealIn":0,
+      "Threat":0,
+      "RaidEncounterId":0,
+      "RaidEncounterMode":0,
+      "RaidEncounterPlayers":0,
+      "CombatTicks":0,
+      "CombatStart":"",
+      "CombatEnd":"",
+      "LastCombatUpdate":"2014-05-17T23:39:20Z"
+    },
+    ...
+  ],
+  MinimumPollingRate": 1
+}
+</code></pre></li>
+</ul>
+
+<h2>POST /api/SyncRaidStats</h2>
+
+<p>Updates the raid stats with the given user's stats and returns the stats of all
+users in the raid group.</p>
+
+<ul>
+<li><p>Request (application/json)</p>
+
+<pre><code>{
+  "RaidGroup": "RAID GROUP NAME",
+  "RaidPassword": "PASSWORD",
+  "Statistics": {
+      "RaidUserId":5,
+      "CharacterName":"Karmeld",
+      "DamageOut":2000,
+      "DamageIn":100,
+      "HealOut":0,
+      "EffectiveHealOut":0,
+      "HealIn":0,
+      "Threat":0,
+      "RaidEncounterId":0,
+      "RaidEncounterMode":0,
+      "RaidEncounterPlayers":0,
+      "CombatTicks":0,
+      "CombatStart":"",
+      "CombatEnd":""
+  }
+}
+</code></pre></li>
+<li><p>Response 200 (application/json)</p>
+
+<pre><code>{
+  "ErrorMessage": ""
+  "Users": [
+    {
+      "RaidUserId":5,
+      "RaidGroupId":5001,
+      "LastConnectDate":"2014-05-17T23:39:20Z",
+      "IsConnected":true,
+      "CharacterName":"Karmeld",
+      "DamageOut":2000,
+      "DamageIn":100,
+      "HealOut":0,
+      "EffectiveHealOut":0,
+      "HealIn":0,
+      "Threat":0,
+      "RaidEncounterId":0,
+      "RaidEncounterMode":0,
+      "RaidEncounterPlayers":0,
+      "CombatTicks":0,
+      "CombatStart":"",
+      "CombatEnd":"",
+      "LastCombatUpdate":"2014-05-17T23:39:20Z"
+    },
+    ...
+  ],
+  MinimumPollingRate": 1
+}
+</code></pre></li>
+</ul>
+</body>
+</html>

@@ -136,12 +136,17 @@ func main() {
 
 	// Start up web server
 	log.Printf("Starting up Parsec Server on port %s", port)
-	http.HandleFunc("/RequestRaidGroup", requestRaidGroupHandler)
-	http.HandleFunc("/DeleteRaidGroup", deleteRaidGroupHandler)
-	http.HandleFunc("/TestConnection", testConnectionHandler)
-	http.HandleFunc("/SyncRaidStats", syncOrGetStatsHandler)
-	http.HandleFunc("/GetRaidStats", syncOrGetStatsHandler)
+	http.HandleFunc("/", homepageHandler)
+	http.HandleFunc("/api/RequestRaidGroup", requestRaidGroupHandler)
+	http.HandleFunc("/api/DeleteRaidGroup", deleteRaidGroupHandler)
+	http.HandleFunc("/api/TestConnection", testConnectionHandler)
+	http.HandleFunc("/api/SyncRaidStats", syncOrGetStatsHandler)
+	http.HandleFunc("/api/GetRaidStats", syncOrGetStatsHandler)
 	http.ListenAndServe(httpPort, nil)
+}
+
+func homepageHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "index.html")
 }
 
 func requestRaidGroupHandler(w http.ResponseWriter, r *http.Request) {
