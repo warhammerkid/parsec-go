@@ -7,10 +7,10 @@ import (
 	"runtime"
 	"time"
 	"sync"
-	"compress/gzip"
 	"encoding/json"
 	"net/http"
 	"database/sql"
+	"github.com/youtube/vitess/go/cgzip"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -337,7 +337,7 @@ func updateRaidStats(raidStats *RaidStats, parsedUser RaidUser) {
 func sendSerializedJSON(w http.ResponseWriter, res interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Encoding", "gzip")
-	gz := gzip.NewWriter(w)
+	gz, _ := cgzip.NewWriterLevel(w, 1)
 	json.NewEncoder(gz).Encode(&res)
 	gz.Close()
 }
