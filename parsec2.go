@@ -379,15 +379,12 @@ func garbageCollectInactive() {
 }
 
 // Serialize and deserialize time to reduce memory
+const RFC3339NanoJSON = `"`+time.RFC3339Nano+`"`
 func (t RFC3339NanoTime) MarshalJSON() ([]byte, error) {
-	return []byte(t.Format(`"`+time.RFC3339Nano+`"`)), nil
+	return []byte(t.Format(RFC3339NanoJSON)), nil
 }
 func (t *RFC3339NanoTime) UnmarshalJSON(data []byte) error {
-	var s string
-	if err := json.Unmarshal(data, &s); err != nil {
-		return err
-	}
-	realTime, err := time.Parse(time.RFC3339Nano, s)
+	realTime, err := time.Parse(RFC3339NanoJSON, string(data[:]))
 	if err != nil {
 		return err
 	}
