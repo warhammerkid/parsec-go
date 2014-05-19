@@ -260,7 +260,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	raidGroupStats := calculateRaidStats(user.raidGroup)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Encoding", "gzip")
-	gz := gzip.NewWriter(w)
+	gz, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
 	json.NewEncoder(gz).Encode(&raidGroupStats)
 	gz.Close()
 }
