@@ -299,9 +299,9 @@ func garbageCollectInactive() {
 		<-tick
 
 		now := time.Now()
-		inactiveUsers := make([]*User, 0, 32)
 
 		// Build list of inactive users
+		inactiveUsers := make([]*User, 0, 32)
 		allUsers.RLock()
 		for k := range allUsers.users {
 			user := allUsers.users[k]
@@ -313,21 +313,21 @@ func garbageCollectInactive() {
 
 		// Continue if no inactive users
 		if len(inactiveUsers) == 0 {
-			continue;
+			continue
 		}
 		log.Printf("Deleting %d inactive users", len(inactiveUsers))
 
+		// Delete all inactive users and remove them from their raid groups
 		allUsers.Lock()
-		for i := 0; i < len(inactiveUsers); i++ {
+		for i := range inactiveUsers {
 			user := inactiveUsers[i]
 
 			// Remove from raid group
 			user.raidGroup.Lock()
 			groupUsers := user.raidGroup.users
-			userCount := len(groupUsers)
-			for i := 0; i < userCount; i++ {
-				if groupUsers[i] == user {
-					groupUsers[i] = nil
+			for j := range groupUsers {
+				if groupUsers[j] == user {
+					groupUsers[j] = nil
 					break
 				}
 			}
@@ -338,6 +338,37 @@ func garbageCollectInactive() {
 			delete(allUsers.users, user.token)
 		}
 		allUsers.Unlock()
+
+		// Build list of inactive raid groups
+		inactiveRaidGroups := make([]*RaidGroup, 0, 32)
+		allRaidGroups.RLock()
+		for k := range allRaidGroups.raidGroups {
+			active := false
+			raidGroup := allRaidGroups.raidGroups[k]
+			raidGroup.RLock()
+			for j := range raidGroup.users {
+				if raidGroup.users[j] != nil {
+					active = true
+					break
+				}
+			}
+			raidGroup.RUnlock()
+
+			if !active {
+				log.Printf("Raid group %s inactive", raidGroup.name)
+				inactiveRaidGroups = append(inactiveRaidGroups, raidGroup)
+			}
+		}
+		allRaidGroups.RUnlock()
+
+		// Delete inactive raid groups
+		if len(inactiveRaidGroups) > 0 {
+			allRaidGroups.Lock()
+			for i := range inactiveRaidGroups {
+				delete(allRaidGroups.raidGroups, inactiveRaidGroups[i].id)
+			}
+			allRaidGroups.Unlock()
+		}
 
 		log.Printf("GC run completed in %d ms", int64(time.Since(now) / time.Millisecond))
 	}
