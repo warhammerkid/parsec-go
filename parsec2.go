@@ -7,11 +7,11 @@ import (
 	"runtime"
 	"time"
 	"sync"
-	"compress/gzip"
 	"encoding/json"
 	"net/http"
 	"database/sql"
 	"github.com/satori/go.uuid"
+	"github.com/youtube/vitess/go/cgzip"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -264,7 +264,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	raidGroupStats := calculateRaidStats(user.raidGroup)
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Encoding", "gzip")
-	gz, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
+	gz, _ := cgzip.NewWriterLevel(w, 1)
 	json.NewEncoder(gz).Encode(&raidGroupStats)
 	gz.Close()
 }
