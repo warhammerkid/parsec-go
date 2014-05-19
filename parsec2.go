@@ -65,6 +65,10 @@ const (
 	createRaidGroup = "INSERT INTO raid_groups VALUES (NULL, ?, ?, ?, ?)"
 	deleteRaidGroup = "DELETE FROM raid_groups WHERE name=? AND admin_password=?"
 	selectRaidGroup = "SELECT id, password FROM raid_groups WHERE name=?"
+
+	// GC Configs
+	gcCheckFrequency = 1*time.Minute
+	inactiveTimeoutDuration = 5*time.Minute
 )
 
 var (
@@ -109,6 +113,9 @@ func main() {
 	// Initialize in-memory stores
 	allUsers = &UserStore{users:map[string]*User{}}
 	allRaidGroups = &RaidGroupStore{raidGroups:map[uint32]*RaidGroup{}}
+
+	// Start up GC for inactive users and groups
+	go garbageCollectInactive()
 
 	// What port are we running on?
 	port := os.Getenv("PORT")
@@ -270,15 +277,68 @@ func loginRaid(group string, password string) uint32 {
 }
 
 func calculateRaidStats(raidGroup *RaidGroup) []UserStats {
-	// Pull out all user stats
+	// Pull out all active user stats
 	raidGroup.RLock()
-	userStats := make([]UserStats, len(raidGroup.users))
-	for i := 0; i < len(raidGroup.users); i++ {
-		userStats[i] = raidGroup.users[i].stats
+	userCount := len(raidGroup.users)
+	userStats := make([]UserStats, 0, userCount)
+	for i := 0; i < userCount; i++ {
+		if raidGroup.users[i] != nil {
+			userStats = append(userStats, raidGroup.users[i].stats)
+		}
 	}
 	raidGroup.RUnlock()
 
 	// Post-process...
 
 	return userStats
+}
+
+func garbageCollectInactive() {
+	tick := time.Tick(gcCheckFrequency)
+	for {
+		<-tick
+
+		now := time.Now()
+		inactiveUsers := make([]*User, 0, 32)
+
+		// Build list of inactive users
+		allUsers.RLock()
+		for k := range allUsers.users {
+			user := allUsers.users[k]
+			if now.Sub(user.lastActivity) > inactiveTimeoutDuration {
+				inactiveUsers = append(inactiveUsers, user)
+			}
+		}
+		allUsers.RUnlock()
+
+		// Continue if no inactive users
+		if len(inactiveUsers) == 0 {
+			continue;
+		}
+		log.Printf("Deleting %d inactive users", len(inactiveUsers))
+
+		allUsers.Lock()
+		for i := 0; i < len(inactiveUsers); i++ {
+			user := inactiveUsers[i]
+
+			// Remove from raid group
+			user.raidGroup.Lock()
+			groupUsers := user.raidGroup.users
+			userCount := len(groupUsers)
+			for i := 0; i < userCount; i++ {
+				if groupUsers[i] == user {
+					groupUsers[i] = nil
+					break
+				}
+			}
+			user.raidGroup.Unlock()
+			user.raidGroup = nil
+
+			// Remove from users store
+			delete(allUsers.users, user.token)
+		}
+		allUsers.Unlock()
+
+		log.Printf("GC run completed in %d ms", int64(time.Since(now) / time.Millisecond))
+	}
 }
