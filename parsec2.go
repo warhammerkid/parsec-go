@@ -15,13 +15,17 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type RFC3339NanoTime struct {
+	time.Time
+}
+
 type UserStore struct {
 	sync.RWMutex
-	users map[string]*User
+	users map[uuid.UUID]*User
 }
 
 type User struct {
-    token string
+    token uuid.UUID
     lastActivity time.Time
     raidGroup *RaidGroup
     stats UserStats
@@ -29,8 +33,6 @@ type User struct {
 
 type UserStats struct {
 	RaidUserId            int32
-	RaidGroupId           uint32 // Server provided
-	LastConnectDate       string // Server provided
 	CharacterName         string
 	DamageOut             int32
 	DamageIn              int32
@@ -42,9 +44,9 @@ type UserStats struct {
 	RaidEncounterMode     int32
 	RaidEncounterPlayers  int32
 	CombatTicks           int64
-	CombatStart           string
-	CombatEnd             string
-	LastCombatUpdate      string // Server provided
+	CombatStart           RFC3339NanoTime
+	CombatEnd             RFC3339NanoTime
+	LastCombatUpdate      RFC3339NanoTime // Server provided
 }
 
 type RaidGroupStore struct {
@@ -111,7 +113,7 @@ func main() {
 	}
 
 	// Initialize in-memory stores
-	allUsers = &UserStore{users:map[string]*User{}}
+	allUsers = &UserStore{users:map[uuid.UUID]*User{}}
 	allRaidGroups = &RaidGroupStore{raidGroups:map[uint32]*RaidGroup{}}
 
 	// Start up GC for inactive users and groups
@@ -195,9 +197,10 @@ func connectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create user
-	token := uuid.NewV4().String()
+	token := uuid.NewV4()
+	tokenStr := token.String()
 	user := &User{token:token, lastActivity:time.Now()}
-	log.Printf("User connected: %s", token)
+	log.Printf("User connected: %s", tokenStr)
 
 	// Add user to user store
 	allUsers.Lock()
@@ -225,12 +228,13 @@ func connectHandler(w http.ResponseWriter, r *http.Request) {
 	user.raidGroup = raidGroup
 
 	// Write out token
-	w.Write([]byte(token))
+	w.Write([]byte(tokenStr))
 }
 
 func statsHandler(w http.ResponseWriter, r *http.Request) {
 	// Look up user by token
-	token := r.URL.Query().Get("t")
+	tokenStr := r.URL.Query().Get("t")
+	token, _ := uuid.FromString(tokenStr)
 	allUsers.RLock()
 	user := allUsers.users[token]
 	allUsers.RUnlock()
@@ -372,4 +376,21 @@ func garbageCollectInactive() {
 
 		log.Printf("GC run completed in %d ms", int64(time.Since(now) / time.Millisecond))
 	}
+}
+
+// Serialize and deserialize time to reduce memory
+func (t RFC3339NanoTime) MarshalJSON() ([]byte, error) {
+	return []byte(t.Format(`"`+time.RFC3339Nano+`"`)), nil
+}
+func (t *RFC3339NanoTime) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	realTime, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return err
+	}
+	*t = RFC3339NanoTime{realTime}
+	return nil
 }
